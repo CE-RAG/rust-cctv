@@ -5,3 +5,8 @@ edition = "2024"
 
 [dependencies]
 actix-web = "4.12.1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+reqwest = { version = "0.11", features = ["json"] }
+qdrant-client = "1.10" # Official Qdrant SDK
+tokio = { version = "1", features = ["full"] }

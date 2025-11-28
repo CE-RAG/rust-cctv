@@ -1,1 +1,36 @@
-/target
+# Rust
+/target/
+
+# Cargo.lock is typically committed for applications
+# Uncomment the next line if you want to ignore it
+# Cargo.lock
+
+# Backup files
+**/*.rs.bk
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Environment variables
+.env
+.env.local
+.env.production
+
+# Logs
+*.log
+
+# Docker (if using Docker for builds or volumes)
+#docker-compose.override.yml
+# .dockerignore is usually committed

@@ -1,16 +1,11 @@
-use actix_web::{web, App, HttpServer, HttpResponse, Responder, post};
+use actix_web::{web, App, HttpServer, HttpResponse, Responder, post, get};
 use serde::{Deserialize, Serialize};
 use qdrant_client::prelude::*;
-use qdrant_client::qdrant::{SearchPoints, PointStruct, Value};
+use qdrant_client::qdrant::{SearchPoints, Value};
 use std::collections::HashMap;
-
-// --- Config ---
-const QDRANT_URL: &str = "http://localhost:6334"; // Or your Cloud URL
-const AI_SERVICE_URL: &str = "http://localhost:8000";
-const COLLECTION_NAME: &str = "nt_cctv_vehicles";
+use std::env;
 
 // --- Data Structures ---
-
 #[derive(Deserialize)]
 struct SearchRequest {
     query: String,
@@ -27,18 +22,23 @@ struct SearchResult {
     filename: String,
     caption: String,
     score: f32,
-    metadata: HashMap<String, String>, // Simplified metadata
 }
 
 struct AppState {
     qdrant: QdrantClient,
     http_client: reqwest::Client,
+    ai_service_url: String,
+    collection_name: String,
 }
 
 // --- Helper: Call Python AI Service ---
-async fn get_text_embedding(client: &reqwest::Client, text: &str) -> Result<Vec<f32>, String> {
-    let res = client
-        .post(format!("{}/embed_text", AI_SERVICE_URL))
+async fn get_text_embedding(
+    client: &reqwest::Client,
+    base_url: &str,
+    text: &str
+) -> Result<Vec<f32>, String> {
+    let url = format!("{}/embed_text", base_url);
+    let res = client.post(&url)
         .json(&serde_json::json!({ "text": text }))
         .send()
         .await
@@ -58,18 +58,16 @@ async fn search_vehicles(
     state: web::Data<AppState>,
     payload: web::Json<SearchRequest>,
 ) -> impl Responder {
-    
-    // 1. Get Embedding from Python Service
-    let vector = match get_text_embedding(&state.http_client, &payload.query).await {
+
+    // 1. Get Embedding
+    let vector = match get_text_embedding(&state.http_client, &state.ai_service_url, &payload.query).await {
         Ok(v) => v,
         Err(e) => return HttpResponse::InternalServerError().body(format!("Embedding failed: {}", e)),
     };
 
-    println!("Generated embedding for '{}': len={}", payload.query, vector.len());
-
     // 2. Search Qdrant
     let search_points = SearchPoints {
-        collection_name: COLLECTION_NAME.to_string(),
+        collection_name: state.collection_name.clone(),
         vector: vector,
         limit: payload.top_k.unwrap_or(5),
         with_payload: Some(true.into()),
@@ -80,10 +78,9 @@ async fn search_vehicles(
 
     match result {
         Ok(response) => {
-            // 3. Map Qdrant results to clean JSON
             let hits: Vec<SearchResult> = response.result.into_iter().map(|point| {
                 let payload = point.payload;
-                
+
                 // Helper to extract string from Qdrant Value
                 let get_str = |key: &str| -> String {
                     payload.get(key)
@@ -99,7 +96,6 @@ async fn search_vehicles(
                     filename: get_str("filename"),
                     caption: get_str("caption"),
                     score: point.score,
-                    metadata: HashMap::new(), // You can map other fields (color, brand) here
                 }
             }).collect();
 
@@ -109,49 +105,40 @@ async fn search_vehicles(
     }
 }
 
-// --- Handler: Index (Example trigger) ---
-// This assumes you send the image URL or Path to be indexed
-#[derive(Deserialize)]
-struct IndexRequest {
-    filename: String,
-    image_path: String,
-    metadata: serde_json::Value, 
-}
-
-#[post("/index")]
-async fn index_image(
-    state: web::Data<AppState>,
-    payload: web::Json<IndexRequest>,
-) -> impl Responder {
-    // Note: In a real app, you would read the file here and send 
-    // multipart data to the Python /embed_image endpoint.
-    // For brevity, this is a placeholder structure.
-    
-    HttpResponse::Ok().body("To implement: Read file -> Call Python /embed_image -> Qdrant Upsert")
+#[get("/health")]
+async fn health() -> impl Responder {
+    HttpResponse::Ok().body("Rust Backend is Running")
 }
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    // Initialize Qdrant Client
-    // Note: For Qdrant Cloud, use QdrantClient::from_url("...").with_api_key("...")
-    let qdrant_client = QdrantClient::from_url(QDRANT_URL)
+    // Read Config from ENV (with defaults for local dev)
+    let qdrant_url = env::var("QDRANT_URL").unwrap_or_else(|_| "https://38c16abc-090f-4840-b89d-f9f0500793e1.europe-west3-0.gcp.cloud.qdrant.io:6333".to_string());
+    let ai_service_url = env::var("AI_SERVICE_URL").unwrap_or_else(|_| "http://192.168.248.177:5090/predict".to_string());
+    let collection_name = env::var("COLLECTION_NAME").unwrap_or_else(|_| "nt_cctv_vehicles".to_string());
+
+    println!("Starting Server...");
+    println!(" -> Qdrant: {}", qdrant_url);
+    println!(" -> AI Service: {}", ai_service_url);
+
+    let qdrant_client = QdrantClient::from_url(&qdrant_url)
         .build()
         .expect("Failed to create Qdrant client");
 
     let http_client = reqwest::Client::new();
-
-    println!("Server starting at http://127.0.0.1:8080");
 
     HttpServer::new(move || {
         App::new()
             .app_data(web::Data::new(AppState {
                 qdrant: qdrant_client.clone(),
                 http_client: http_client.clone(),
+                ai_service_url: ai_service_url.clone(),
+                collection_name: collection_name.clone(),
             }))
             .service(search_vehicles)
-            .service(index_image)
+            .service(health)
     })
-    .bind(("127.0.0.1", 8080))?
+    .bind(("0.0.0.0", 8080))?
     .run()
     .await
 }

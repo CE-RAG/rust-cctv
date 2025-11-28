@@ -10,10 +10,11 @@ services:
                # URL of your Python AI Service
                # Use "host.docker.internal" if running on Mac/Windows host
                # Use "172.17.0.1" (docker bridge ip) if running on Linux host
-               - AI_SERVICE_URL=http://192.168.248.177:5090/predict
+               - AI_SERVICE_URL=
 
                # URL of your Qdrant DB
-               - QDRANT_URL=https://38c16abc-090f-4840-b89d-f9f0500793e1.europe-west3-0.gcp.cloud.qdrant.io:6333
-               - COLLECTION_NAME=nt_cctv_vehicles
+               - QDRANT_URL=
+               - QDRANT_API_KEY=
+               - COLLECTION_NAME=
           extra_hosts:
                - "host.docker.internal:host-gateway" # Helper for Linux to reach host

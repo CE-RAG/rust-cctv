@@ -6,6 +6,11 @@ pub struct SearchRequest {
     pub top_k: Option<u64>,
 }
 
+#[derive(Deserialize)]
+pub struct InsertImageRequest {
+    pub image: String, // image URL
+}
+
 #[derive(Serialize)]
 pub struct SearchResult {
     pub filename: String,

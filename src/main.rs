@@ -1,32 +1,12 @@
 use actix_web::{App, HttpResponse, HttpServer, Responder, post, web};
 use qdrant_client::Qdrant;
 use qdrant_client::qdrant::SearchPoints;
-use serde::{Deserialize, Serialize};
 use std::env;
 use std::sync::Arc;
 
+use crate::models::search::{EmbedResponse, SearchRequest, SearchResult};
+mod models;
 // --- Data Structures ---
-
-#[derive(Deserialize)]
-struct SearchRequest {
-    query: String,
-    top_k: Option<u64>,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-struct EmbedResponse {
-    // FIX: This allows the Rust struct to accept "embedding" (from Python)
-    // OR "vector" (standard) without crashing.
-    #[serde(alias = "embedding")]
-    vector: Vec<f32>,
-}
-
-#[derive(Serialize)]
-struct SearchResult {
-    filename: String,
-    caption: String,
-    score: f32,
-}
 
 // Global State shared across all web workers
 struct AppState {

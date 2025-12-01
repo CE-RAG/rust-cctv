@@ -1,11 +1,26 @@
+```mermaid
 graph LR
-    A[Client] --> B[Rust CCTV API]
-    B --> C[Qdrant Vector DB]
-    B --> D[AI Service]
-    D --> E[Image Embedding Model]
-    D --> F[Text Embedding Model]
-    B --> G[CCTV Data]
-    G --> C
+    %% Nodes
+    A[Client]
+    B[Rust CCTV API]
+    D[SigLib]
+    E[Image Embedding]
+    F[Text Embedding]
+    C[Qdrant Vector DB]
+
+    %% Insert Image Flow
+    A -->|Insert Image| B
+    B -->|Call Image Embedding| D
+    D -->|Image Vector| E
+    E -->|Insert Vector + Metadata| C
+
+    %% Search Flow
+    A -->|Search Text| B
+    B -->|Call Text Embedding| D
+    D -->|Text Vector| F
+    F -->|Query Vector DB| C
+    C -->|Search Results| B
+    B --> A
 ```
 
 ## Prerequisites

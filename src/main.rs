@@ -10,10 +10,10 @@ mod services;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    // Load .env file
+    // Load environment variables
     dotenv().ok();
 
-    // 1. Load Configuration from Environment Variables
+    // Load configuration from environment variables with defaults
     let qdrant_url = env::var("QDRANT_URL").unwrap_or_else(|_| "http://localhost:6334".to_string());
     let ai_service_url =
         env::var("AI_SERVICE_URL").unwrap_or_else(|_| "http://localhost:5090".to_string());
@@ -29,17 +29,28 @@ async fn main() -> std::io::Result<()> {
     println!("   -> Collection : {}", collection_name);
     println!("========================================");
 
-    // 2. Configure Qdrant Client for Cloud gRPC
+    // Configure Qdrant client
     let client = Qdrant::from_url(&qdrant_url)
-        .api_key(qdrant_api_key) // <-- no &
+        .api_key(qdrant_api_key)
         .build()
-        .expect("Failed to initialize Qdrant Client");
+        .expect("Failed to initialize Qdrant client");
 
-    // 3. Create Shared State (Arc)
+    // Create shared state
     let qdrant_arc = Arc::new(client);
     let http_client = reqwest::Client::new();
 
-    // 4. Start HTTP Server
+    // Ensure collection exists and create datetime field index
+    println!("Setting up collection...");
+    match services::ensure_collection_exists(&qdrant_arc, &collection_name, 768).await {
+        Ok(_) => println!("✅ Collection is ready"),
+        Err(e) => println!("⚠️  Warning: {}", e),
+    }
+
+    println!("Creating datetime field index...");
+    match services::create_datetime_index(&qdrant_arc, &collection_name).await {
+        Ok(_) => println!("✅ Datetime field index created successfully"),
+        Err(e) => println!("⚠️  Warning: {}", e),
+    }
     HttpServer::new(move || {
         App::new()
             .app_data(web::Data::new(handlers::AppState {

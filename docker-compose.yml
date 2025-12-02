@@ -11,8 +11,35 @@ services:
       - AI_SERVICE_URL=
 
       # URL of your Qdrant DB
-      - QDRANT_URL=
-      - QDRANT_API_KEY=
-      - COLLECTION_NAME=
+      - QDRANT_URL=http://qdrant:6334
+      - QDRANT_API_KEY=my-secret-api-key
+      - COLLECTION_NAME=nt-cctv-vehicles
+    depends_on:
+      - qdrant
+    networks:
+      - cctv-network
     extra_hosts:
       - "host.docker.internal:host-gateway" # Helper for Linux to reach host
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: qdrant
+    ports:
+      - "6333:6333" # REST API
+      - "6334:6334" # gRPC API
+    environment:
+      - QDRANT__SERVICE__API_KEY=my-secret-api-key
+      - QDRANT__LOG_LEVEL=INFO
+    volumes:
+      - qdrant_storage:/qdrant/storage
+    networks:
+      - cctv-network
+    restart: unless-stopped
+
+networks:
+  cctv-network:
+    driver: bridge
+
+volumes:
+  qdrant_storage:
+    driver: local

@@ -1,18 +1,18 @@
 services:
-     backend:
-          build: .
-          container_name: rust_backend_api
-          ports:
-               - "8080:8080"
-          environment:
-               # URL of your Python AI Service
-               # Use "host.docker.internal" if running on Mac/Windows host
-               # Use "172.17.0.1" (docker bridge ip) if running on Linux host
-               - AI_SERVICE_URL=
+  backend:
+    build: .
+    container_name: rust_backend_api
+    ports:
+      - "8080:8080"
+    environment:
+      # URL of your Python AI Service
+      # Use "host.docker.internal" if running on Mac/Windows host
+      # Use "172.17.0.1" (docker bridge ip) if running on Linux host
+      - AI_SERVICE_URL=
 
-               # URL of your Qdrant DB
-               - QDRANT_URL=
-               - QDRANT_API_KEY=
-               - COLLECTION_NAME=
-          extra_hosts:
-               - "host.docker.internal:host-gateway" # Helper for Linux to reach host
+      # URL of your Qdrant DB
+      - QDRANT_URL=
+      - QDRANT_API_KEY=
+      - COLLECTION_NAME=
+    extra_hosts:
+      - "host.docker.internal:host-gateway" # Helper for Linux to reach host

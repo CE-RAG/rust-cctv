@@ -40,3 +40,48 @@ pub struct ParsedFilename {
     #[allow(dead_code)]
     pub sequence: String,
 }
+
+/// Request to fetch training data from CCTV metadata API
+#[derive(Serialize, Debug)]
+pub struct CctvMetadataRequest {
+    pub cctv_id: String,
+    pub date_start: String,
+    pub date_stop: String,
+    pub limit: u32,
+}
+
+/// Response wrapper from CCTV metadata API
+#[derive(Deserialize, Debug)]
+#[allow(dead_code)]
+pub struct CctvMetadataResponse {
+    pub success: bool,
+    pub count: u32,
+    pub data: Vec<CctvImageData>,
+}
+
+/// Individual CCTV image metadata
+#[derive(Deserialize, Debug)]
+#[allow(dead_code)]
+pub struct CctvImageData {
+    pub id: u32,
+    pub cctv_id: String,
+    pub date: String,
+    pub time: String,
+    pub frame: u32,
+    pub vehicle_type: u32,
+    pub yolo_id: u32,
+    pub filename: String,
+    pub file_path: String,
+    pub ai_label: Option<AiLabel>,
+    #[serde(rename = "createdAt")]
+    pub created_at: String,
+}
+
+/// AI label information
+#[derive(Deserialize, Debug)]
+#[allow(dead_code)]
+pub struct AiLabel {
+    pub class_name: String,
+    pub confidence: f32,
+}
+

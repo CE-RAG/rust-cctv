@@ -8,6 +8,7 @@ A high-performance backend service for searching CCTV footage using vector embed
 - **Datetime Filtering**: Filter search results by date and time ranges
 - **URL Support**: Works with both local filenames and image URLs
 - **Filename Parsing**: Automatically extracts metadata from CCTV filenames
+- **Automated Image Fetching**: Background scheduler that automatically fetches and indexes images from CCTV metadata API every 10 minutes
 
 ## Software Architecture
 ```mermaid
@@ -79,6 +80,9 @@ Configure the application using environment variables:
 - `AI_SERVICE_URL`: URL of the AI embedding service (default: `http://localhost:5090`)
 - `COLLECTION_NAME`: Name of the Qdrant collection (default: `ntcctvvehicles`)
 - `QDRANT_API_KEY`: API key for Qdrant (if required)
+- `CCTV_API_URL`: URL of the CCTV metadata API (default: `https://ntvideo.totbb.net/video-metadata/train-data-condition`)
+- `CCTV_AUTH_TOKEN`: Bearer token for CCTV metadata API authentication (required)
+- `CCTV_ID`: CCTV camera ID to fetch images from (default: `cctv01`)
 
 ## Collection and Index Setup
 
@@ -96,6 +100,47 @@ curl -X PUT "http://localhost:6334/collections/{collection_name}/index" \
     "field_schema": "datetime"
   }'
 ```
+
+## Automated Image Fetching
+
+The application includes a background scheduler that automatically fetches and indexes CCTV images from the metadata API. This feature runs independently from the web server.
+
+### How It Works
+
+1. **Scheduler**: Runs every 10 minutes (configurable via cron expression in `main.rs`)
+2. **Fetch Limit**: Fetches up to 20 images per run
+3. **Date Range**: Queries images from the last 2 days
+4. **Processing**: For each fetched image:
+   - Downloads the image metadata
+   - Generates vector embeddings via the AI service
+   - Parses the filename to extract datetime and camera information
+   - Stores the embedding and metadata in Qdrant
+
+### Logs
+
+The scheduler provides detailed logging:
+```
+⏰ Running scheduled CCTV image fetch...
+📡 Fetching CCTV training data from API...
+   -> CCTV ID: cctv01
+   -> Date Range: 2025-12-15 08:00:00 to 2025-12-17 20:00:00
+   -> Limit: 20
+✅ Successfully fetched 20 images from CCTV API
+📥 Processing 20 images...
+   [1/20] Processing: https://example.com/image1.jpg
+      ✅ Inserted successfully
+...
+✅ Scheduled task completed
+```
+
+### Configuration
+
+To configure the automated fetching, update these environment variables:
+- `CCTV_API_URL`: The API endpoint
+- `CCTV_AUTH_TOKEN`: Your Bearer authentication token
+- `CCTV_ID`: The camera ID to fetch images from
+
+The scheduler starts automatically when the application launches and runs in the background.
 
 ## API Endpoints
 

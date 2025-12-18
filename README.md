@@ -23,6 +23,15 @@ graph LR
     B --> A
 ```
 
+```plantuml
+@startuml
+Alice -> Bob: Authentication Request
+Bob --> Alice: Authentication Response
+
+Alice -> Bob: Another authentication Request
+Alice <-- Bob: Another authentication Response
+@enduml
+```
 ## Prerequisites
 
 - Rust 1.91+

@@ -45,13 +45,19 @@ graph LR
 ```
 rust-cctv/
 ├── src/
-│   ├── main.rs             # Application entry point
-│   ├── handlers.rs         # HTTP request handlers
-│   ├── services.rs         # Business logic and utilities
-│   └── models/
-│       ├── mod.rs
-│       └── search.rs       # Data models
+│   ├── main.rs                      # Application entry point & scheduler
+│   ├── handlers.rs                  # HTTP request handlers
+│   ├── models/
+│   │   ├── mod.rs
+│   │   └── search.rs                # Data models & request/response types
+│   └── services/
+│       ├── mod.rs                   # Service module exports
+│       ├── ai_service.rs            # AI embedding service integration
+│       ├── cctv_api.rs              # CCTV metadata API client
+│       ├── qdrant_service.rs        # Qdrant vector DB operations
+│       └── filename_utils.rs        # CCTV filename parsing utilities
 ├── Cargo.toml
+├── .env                             # Environment configuration
 └── README.md
 ```
 
@@ -107,7 +113,7 @@ The application includes a background scheduler that automatically fetches and i
 
 ### How It Works
 
-1. **Scheduler**: Runs every 10 minutes (configurable via cron expression in `main.rs`)
+1. **Scheduler**: Currently runs every 1 minute (configurable via cron expression in `main.rs`)
 2. **Fetch Limit**: Fetches up to 20 images per run
 3. **Date Range**: Queries images from the last 2 days
 4. **Processing**: For each fetched image:
@@ -139,6 +145,20 @@ To configure the automated fetching, update these environment variables:
 - `CCTV_API_URL`: The API endpoint
 - `CCTV_AUTH_TOKEN`: Your Bearer authentication token
 - `CCTV_ID`: The camera ID to fetch images from
+
+To change the schedule interval, modify the cron expression in `src/main.rs` (line ~79):
+```rust
+// Current: Every 1 minute
+let job = Job::new_async("0 */1 * * * *", move |_uuid, _l| {
+    // ... job logic
+});
+
+// Examples:
+// Every 5 minutes:  "0 */5 * * * *"
+// Every 10 minutes: "0 */10 * * * *"
+// Every hour:       "0 0 * * * *"
+// Every 30 minutes: "0 */30 * * * *"
+```
 
 The scheduler starts automatically when the application launches and runs in the background.
 
@@ -223,11 +243,17 @@ The search endpoint supports filtering by datetime range using RFC 3339 format:
 
 ## Dependencies
 
-- actix-web: HTTP server framework
-- qdrant-client: Vector database client
-- reqwest: HTTP client
-- chrono: Datetime handling
-- serde: Serialization/deserialization
+- **actix-web** (4.12.1): HTTP server framework
+- **qdrant-client** (1.10): Vector database client
+- **reqwest** (0.11): HTTP client for API calls
+- **tokio** (1.x): Async runtime with full features
+- **tokio-cron-scheduler** (0.9): Background task scheduler
+- **chrono** (0.4): Datetime handling
+- **chrono-tz** (0.8): Timezone support (Bangkok/Thailand)
+- **serde** (1.0): Serialization/deserialization
+- **serde_json** (1.0): JSON support
+- **dotenv** (0.15): Environment variable management
+- **rand** (0.8): Random number generation
 
 ## Example Usage
 
@@ -253,6 +279,80 @@ The search endpoint supports filtering by datetime range using RFC 3339 format:
        "end_date": "2025-10-08T07:00:00Z"
      }'
    ```
+
+## Troubleshooting
+
+### 422 Unprocessable Entity from AI Service
+
+If you see errors like:
+```
+❌ Failed to get embedding: AI Image Service returned error: 422 Unprocessable Entity
+```
+
+**Cause**: The AI service is receiving image URLs but expects local file paths or base64-encoded images.
+
+**Solutions**:
+1. **Update your AI service** to accept image URLs and download them
+2. **Modify the Rust code** to download images and send as base64
+3. **Ensure your AI service** accepts the `image_path` field in the request
+
+Example Python AI service fix:
+```python
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+import requests
+from PIL import Image
+from io import BytesIO
+
+class PredictRequest(BaseModel):
+    image_path: str = None
+    text: str = None
+
+@app.post("/predict")
+async def predict(request: PredictRequest):
+    if request.image_path:
+        # Check if it's a URL
+        if request.image_path.startswith(('http://', 'https://')):
+            response = requests.get(request.image_path)
+            image = Image.open(BytesIO(response.content))
+        else:
+            image = Image.open(request.image_path)
+        
+        embedding = your_model.encode_image(image)
+        return {"vector": embedding.tolist()}
+```
+
+### Connection Timeout to CCTV API
+
+If you see:
+```
+❌ Connection timed out - API server may be unreachable
+```
+
+**Check**:
+- Network connectivity to the CCTV API server
+- Firewall settings
+- API URL is correct in `.env`
+- API server is running and accessible
+
+### Authentication Errors
+
+If you see `401 Unauthorized` or `403 Forbidden`:
+
+**Check**:
+- `CCTV_AUTH_TOKEN` is set correctly in `.env`
+- Token hasn't expired
+- Token has proper permissions
+
+### Qdrant Connection Issues
+
+If the application fails to connect to Qdrant:
+
+**Check**:
+- Qdrant is running: `docker ps` or check your Qdrant instance
+- `QDRANT_URL` is correct in `.env`
+- `QDRANT_API_KEY` is set if authentication is enabled
+- Network connectivity to Qdrant server
 
 ## License
 

@@ -10,6 +10,30 @@ A high-performance backend service for searching CCTV footage using vector embed
 - **Filename Parsing**: Automatically extracts metadata from CCTV filenames
 - **Automated Image Fetching**: Background scheduler that automatically fetches and indexes images from CCTV metadata API every 10 minutes
 
+## Software Architecture
+```mermaid
+graph LR
+    %% Nodes
+    A[Client]
+    B[Rust CCTV API]
+    D[SigLib]
+    E[Image Embedding]
+    F[Text Embedding]
+    C[Qdrant Vector DB]
+    %% Insert Image Flow
+    A -->|Insert Image| B
+    B -->|Call Image Embedding| D
+    D -->|Image Vector| E
+    E -->|Insert Vector + Metadata| C
+    %% Search Flow
+    A -->|Search Text| B
+    B -->|Call Text Embedding| D
+    D -->|Text Vector| F
+    F -->|Query Vector DB| C
+    C -->|Search Results| B
+    B --> A
+```
+
 ## Supported Filename Formats
 
 - Underscore format: `cctv08_2025-10-08_06-32_4.jpg`

@@ -1,21 +1,38 @@
-use crate::models::search::{InsertImageRequest, SearchRequest, SearchResult};
+//! HTTP Request Handlers
+//!
+//! Handlers for the REST API endpoints.
+
+use crate::models::search::{CctvImageData, SearchRequest, SearchResult};
 use crate::services::{
-    filename_to_rfc3339, get_image_embedding, get_text_embedding, parse_cctv_filename,
-    rfc3339_to_timestamp,
+    api_datetime_to_rfc3339, extract_string, get_image_embedding, get_text_embedding,
+    rfc3339_to_timestamp, PayloadBuilder,
 };
-use actix_web::{HttpResponse, Responder, post, web};
+use actix_web::{post, web, HttpResponse, Responder};
 use qdrant_client::qdrant::{
     Condition, DatetimeRange, Filter, PointStruct, SearchPoints, UpsertPoints,
 };
-use rand::Rng;
-use std::collections::HashMap;
+use qdrant_client::Qdrant;
+
+use std::sync::Arc;
 
 /// Application state shared across all web workers
 pub struct AppState {
-    pub qdrant: std::sync::Arc<qdrant_client::Qdrant>,
+    pub qdrant: Arc<Qdrant>,
     pub http_client: reqwest::Client,
     pub ai_service_url: String,
     pub collection_name: String,
+}
+
+/// Convert PointId to String
+fn point_id_to_string(point_id: &qdrant_client::qdrant::PointId) -> String {
+    if let Some(kind) = &point_id.point_id_options {
+        match kind {
+            qdrant_client::qdrant::point_id::PointIdOptions::Num(n) => n.to_string(),
+            qdrant_client::qdrant::point_id::PointIdOptions::Uuid(u) => u.clone(),
+        }
+    } else {
+        String::new()
+    }
 }
 
 /// Handler for searching vehicles with optional datetime filtering
@@ -25,169 +42,126 @@ pub async fn search_vehicles(
     payload: web::Json<SearchRequest>,
 ) -> impl Responder {
     // Get text embedding from AI service
-    let vector =
-        match get_text_embedding(&state.http_client, &state.ai_service_url, &payload.query).await {
-            Ok(v) => v,
-            Err(e) => return HttpResponse::InternalServerError().body(e),
-        };
+    let vector = match get_text_embedding(&state.http_client, &state.ai_service_url, &payload.query).await {
+        Ok(v) => v,
+        Err(e) => return HttpResponse::InternalServerError().body(e),
+    };
 
-    // Prepare search for Qdrant
-    let mut search_points = SearchPoints {
+    // Build search request
+    let filter = match build_datetime_filter(&payload) {
+        Ok(f) => f,
+        Err(e) => return HttpResponse::BadRequest().body(e),
+    };
+
+    let search_points = SearchPoints {
         collection_name: state.collection_name.clone(),
         vector,
         vector_name: None,
         limit: payload.top_k.unwrap_or(5),
         with_payload: Some(true.into()),
+        filter,
         ..Default::default()
     };
 
-    // Add datetime filter if provided
-    if payload.start_date.is_some() || payload.end_date.is_some() {
-        let mut datetime_range = DatetimeRange::default();
-
-        if let Some(start) = &payload.start_date {
-            // Skip empty string
-            if !start.is_empty() {
-                match rfc3339_to_timestamp(start) {
-                    Ok(timestamp) => datetime_range.gt = Some(timestamp),
-                    Err(e) => {
-                        return HttpResponse::BadRequest()
-                            .body(format!("Invalid start_date format: {}", e));
-                    }
-                }
-            }
-        }
-
-        if let Some(end) = &payload.end_date {
-            // Skip empty string
-            if !end.is_empty() {
-                match rfc3339_to_timestamp(end) {
-                    Ok(timestamp) => datetime_range.lte = Some(timestamp),
-                    Err(e) => {
-                        return HttpResponse::BadRequest()
-                            .body(format!("Invalid end_date format: {}", e));
-                    }
-                }
-            }
-        }
-
-        // Add datetime filter to search query
-        search_points.filter = Some(Filter {
-            must: vec![Condition::datetime_range("datetime", datetime_range)],
-            ..Default::default()
-        });
-    }
-
-    // Execute search
-    let result = state.qdrant.search_points(search_points).await;
-
-    match result {
+    // Execute search and map results
+    match state.qdrant.search_points(search_points).await {
         Ok(response) => {
-            // Map results to JSON
             let hits: Vec<SearchResult> = response
                 .result
                 .into_iter()
-                .map(|point| {
-                    let payload = point.payload;
-
-                    // Helper to extract string from Qdrant payload
-                    let get_str = |key: &str| -> String {
-                        payload
-                            .get(key)
-                            .and_then(|v| v.kind.as_ref())
-                            .and_then(|k| match k {
-                                qdrant_client::qdrant::value::Kind::StringValue(s) => {
-                                    Some(s.clone())
-                                }
-                                _ => None,
-                            })
-                            .unwrap_or_default()
-                    };
-
-                    SearchResult {
-                        filename: get_str("image"),
-                        caption: get_str("caption"),
-                        score: point.score,
-                        datetime: Some(get_str("datetime")),
-                    }
+                .map(|point| SearchResult {
+                    filename: extract_string(&point.payload, "filename"),
+                    id: point.id.as_ref().map(point_id_to_string).unwrap_or_default(),
+                    score: point.score,
+                    datetime: extract_string(&point.payload, "datetime"),
                 })
                 .collect();
-
             HttpResponse::Ok().json(hits)
         }
         Err(e) => HttpResponse::InternalServerError().body(format!("Qdrant search error: {}", e)),
     }
 }
 
+/// Build datetime filter from search request
+fn build_datetime_filter(payload: &SearchRequest) -> Result<Option<Filter>, String> {
+    let has_start = payload.start_date.as_ref().map_or(false, |s| !s.is_empty());
+    let has_end = payload.end_date.as_ref().map_or(false, |s| !s.is_empty());
+
+    if !has_start && !has_end {
+        return Ok(None);
+    }
+
+    let mut datetime_range = DatetimeRange::default();
+
+    if let Some(start) = &payload.start_date {
+        if !start.is_empty() {
+            datetime_range.gt = Some(
+                rfc3339_to_timestamp(start)
+                    .map_err(|e| format!("Invalid start_date format: {}", e))?,
+            );
+        }
+    }
+
+    if let Some(end) = &payload.end_date {
+        if !end.is_empty() {
+            datetime_range.lte = Some(
+                rfc3339_to_timestamp(end)
+                    .map_err(|e| format!("Invalid end_date format: {}", e))?,
+            );
+        }
+    }
+
+    Ok(Some(Filter {
+        must: vec![Condition::datetime_range("datetime", datetime_range)],
+        ..Default::default()
+    }))
+}
+
 /// Handler for inserting a new image with metadata
 #[post("/insert_image")]
 pub async fn insert_image(
     state: web::Data<AppState>,
-    payload: web::Json<InsertImageRequest>,
+    payload: web::Json<CctvImageData>,
 ) -> impl Responder {
-    // Parse filename to extract metadata
-    let parsed_filename = match parse_cctv_filename(&payload.image) {
-        Ok(parsed) => parsed,
-        Err(e) => {
-            return HttpResponse::BadRequest().body(format!("Invalid filename format: {}", e));
-        }
-    };
+    // Convert date and time to RFC3339 format
+    let datetime_rfc3339 = api_datetime_to_rfc3339(&payload.date, &payload.time);
 
-    // Convert to RFC 3339 format for storage
-    let datetime_rfc3339 = filename_to_rfc3339(&parsed_filename);
+    // Auto-generate createdAt if not provided
+    let created_at = payload.created_at.clone().unwrap_or_else(|| {
+        chrono::Utc::now().to_rfc3339()
+    });
 
-    // Get image embedding from AI service
-    let vector = match get_image_embedding(
-        &state.http_client,
-        &state.ai_service_url,
-        &payload.image,
-    )
-    .await
-    {
+    // Get image embedding from AI service (using file_path)
+    let vector = match get_image_embedding(&state.http_client, &state.ai_service_url, &payload.file_path).await {
         Ok(v) => v,
         Err(e) => return HttpResponse::InternalServerError().body(e),
     };
 
-    // Build Qdrant point
-    let mut rng = rand::thread_rng();
-    let point_id: u64 = rng.r#gen();
+    // Build payload using the builder pattern
+    let mut payload_builder = PayloadBuilder::new()
+        .string("image", &payload.file_path)
+        .string("filename", &payload.filename)
+        .string("camera_id", &payload.cctv_id)
+        .string("datetime", &datetime_rfc3339)
+        .integer("frame", payload.frame as i64)
+        .integer("vehicle_type", payload.vehicle_type as i64)
+        .integer("yolo_id", payload.yolo_id as i64)
+        .string("created_at", &created_at);
 
-    // Create payload with image metadata
-    let mut payload_map: HashMap<String, qdrant_client::qdrant::Value> = HashMap::new();
+    // Add AI label if present
+    if let Some(ref ai_label) = payload.ai_label {
+        payload_builder = payload_builder
+            .string("vehicle_class", &ai_label.class_name)
+            .double("confidence", ai_label.confidence as f64);
+    }
 
-    // Store image URL/filename
-    payload_map.insert(
-        "image".to_string(),
-        qdrant_client::qdrant::Value {
-            kind: Some(qdrant_client::qdrant::value::Kind::StringValue(
-                payload.image.clone(),
-            )),
-        },
-    );
+    let payload_map = payload_builder.build();
 
-    // Store camera ID
-    payload_map.insert(
-        "camera_id".to_string(),
-        qdrant_client::qdrant::Value {
-            kind: Some(qdrant_client::qdrant::value::Kind::StringValue(
-                parsed_filename.camera_id.clone(),
-            )),
-        },
-    );
-
-    // Store datetime in RFC 3339 format
-    payload_map.insert(
-        "datetime".to_string(),
-        qdrant_client::qdrant::Value {
-            kind: Some(qdrant_client::qdrant::value::Kind::StringValue(
-                datetime_rfc3339.clone(),
-            )),
-        },
-    );
-
+    // Use the API's image ID as point ID
+    let point_id: u64 = payload.id as u64;
     let point = PointStruct::new(point_id, vector.clone(), payload_map);
 
-    // Upsert point to Qdrant
+    // Upsert to Qdrant
     let upsert = UpsertPoints {
         collection_name: state.collection_name.clone(),
         wait: Some(true),

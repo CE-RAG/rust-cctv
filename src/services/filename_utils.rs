@@ -1,76 +1,16 @@
 //! Filename Utilities
-//! 
-//! Functions for parsing CCTV filenames and datetime conversions.
+//!
+//! Functions for datetime conversions.
 
-use crate::models::search::ParsedFilename;
 use chrono::{DateTime, Datelike, Timelike, Utc};
 
-/// Parse CCTV filename to extract metadata
-/// 
-/// Supports formats:
-/// - Underscore: `cctv08_2025-10-08_06-32_4.jpg`
-/// - Dash: `cctv08-2025-10-08-06-32-4.jpg`
-/// - Full URLs with filename at the end
-pub fn parse_cctv_filename(filename: &str) -> Result<ParsedFilename, String> {
-    // Extract filename from URL path if needed
-    let filename = if filename.contains('/') {
-        filename.split('/').last().unwrap_or(filename)
-    } else {
-        filename
-    };
-
-    // Check if it's the mixed dash format (camera-date-time-sequence)
-    if filename.contains("cctv") && filename.contains('-') && !filename.contains('_') {
-        parse_dash_format(filename)
-    } else {
-        parse_underscore_format(filename)
-    }
-}
-
-/// Parse dash format: cctv08-2025-10-08-06-32-4.jpg
-fn parse_dash_format(filename: &str) -> Result<ParsedFilename, String> {
-    let dash_pos = filename
-        .find('-')
-        .ok_or("Invalid dash format filename - missing camera ID")?;
-
-    let camera_id = filename[..dash_pos].to_string();
-    let remainder = &filename[dash_pos + 1..];
-
-    // Format: YYYY-MM-DD-HH-MM-sequence.ext
-    let parts: Vec<&str> = remainder.split('-').collect();
-
-    if parts.len() < 6 {
-        return Err("Invalid dash format filename".to_string());
-    }
-
-    Ok(ParsedFilename {
-        camera_id,
-        date: format!("{}-{}-{}", parts[0], parts[1], parts[2]),
-        time: format!("{}-{}", parts[3], parts[4]),
-        sequence: parts[5].split('.').next().unwrap_or("0").to_string(),
-    })
-}
-
-/// Parse underscore format: cctv08_2025-10-08_06-32_4.jpg
-fn parse_underscore_format(filename: &str) -> Result<ParsedFilename, String> {
-    let parts: Vec<&str> = filename.split('_').collect();
-
-    if parts.len() < 4 {
-        return Err("Invalid filename format".to_string());
-    }
-
-    Ok(ParsedFilename {
-        camera_id: parts[0].to_string(),
-        date: parts[1].to_string(),
-        time: parts[2].to_string(),
-        sequence: parts[3].split('.').next().unwrap_or("0").to_string(),
-    })
-}
-
-/// Convert parsed filename datetime to RFC 3339 format
-pub fn filename_to_rfc3339(parsed: &ParsedFilename) -> String {
-    let time_with_minutes = parsed.time.replace('-', ":");
-    format!("{}T{}:00Z", parsed.date, time_with_minutes)
+/// Convert API date and time fields directly to RFC 3339 format
+///
+/// Takes date in format "2025-10-02" and time in format "13:11:00"
+/// Returns RFC 3339 format: "2025-10-02T13:11:00Z"
+#[inline]
+pub fn api_datetime_to_rfc3339(date: &str, time: &str) -> String {
+    format!("{}T{}Z", date, time)
 }
 
 /// Parse RFC 3339 datetime string to Qdrant Timestamp
@@ -89,4 +29,21 @@ pub fn rfc3339_to_timestamp(rfc3339_str: &str) -> Result<qdrant_client::qdrant::
         dt_utc.second() as u8,
     )
     .map_err(|e| format!("Failed to create timestamp: {}", e))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_api_datetime_to_rfc3339() {
+        let result = api_datetime_to_rfc3339("2025-10-02", "13:11:00");
+        assert_eq!(result, "2025-10-02T13:11:00Z");
+    }
+
+    #[test]
+    fn test_rfc3339_to_timestamp() {
+        let result = rfc3339_to_timestamp("2025-10-02T13:11:00Z");
+        assert!(result.is_ok());
+    }
 }

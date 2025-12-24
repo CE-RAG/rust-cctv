@@ -91,6 +91,128 @@ See [REFACTORING_SUMMARY.md](REFACTORING_SUMMARY.md) for detailed changes.
    - Set up a datetime field index for filtering
    - Start the background scheduler for automated image fetching
 
+## Docker Deployment
+
+The application includes Docker support with multi-stage builds for optimal image size and security.
+
+### Quick Start with Docker Compose
+
+1. **Copy the environment template**:
+   ```bash
+   cp .env.example .env
+   ```
+
+2. **Edit `.env` and set your credentials**:
+   ```bash
+   # Required: Set your CCTV API authentication token
+   CCTV_AUTH_TOKEN=your_actual_token_here
+   ```
+
+3. **Start all services**:
+   ```bash
+   docker-compose up -d
+   ```
+
+This will start:
+- **Rust Backend API** on port `8080`
+- **Qdrant Vector Database** on ports `6333` (REST) and `6334` (gRPC)
+
+### Environment Variables in Docker
+
+The `docker-compose.yml` is pre-configured with all necessary environment variables:
+
+```yaml
+environment:
+  # Qdrant Configuration
+  - QDRANT_URL=http://qdrant:6334
+  - QDRANT_API_KEY=my-secret-api-key
+  - COLLECTION_NAME=nt-cctv-vehicles
+  
+  # AI Service Configuration
+  - AI_SERVICE_URL=http://host.docker.internal:5090
+  
+  # CCTV API Configuration
+  - CCTV_API_URL=https://ntvideo.totbb.net/video-metadata/train-data-condition
+  - CCTV_AUTH_TOKEN=${CCTV_AUTH_TOKEN}  # Loaded from .env file
+  - CCTV_ID=cctv01
+```
+
+### Connecting to Host Services
+
+If your **AI Service** runs on your host machine (not in Docker):
+
+- **Windows/Mac**: Use `host.docker.internal:5090` (already configured)
+- **Linux**: Change to `172.17.0.1:5090` in `docker-compose.yml`:
+  ```yaml
+  - AI_SERVICE_URL=http://172.17.0.1:5090
+  ```
+
+### Docker Commands
+
+```bash
+# Start services
+docker-compose up -d
+
+# View logs
+docker-compose logs -f backend
+
+# Stop services
+docker-compose down
+
+# Rebuild after code changes
+docker-compose up -d --build
+
+# Remove all data (including Qdrant storage)
+docker-compose down -v
+```
+
+### Dockerfile Details
+
+The Dockerfile uses a **multi-stage build**:
+
+1. **Builder Stage**: 
+   - Uses `rust:1.91-slim-bookworm`
+   - Compiles with musl for static linking
+   - Optimized with release flags and stripped debug symbols
+
+2. **Runtime Stage**:
+   - Uses `scratch` (minimal base image)
+   - Only contains the compiled binary
+   - Final image size: ~15-20MB
+
+### Production Deployment
+
+For production, consider:
+
+1. **Change default API keys** in `docker-compose.yml`:
+   ```yaml
+   - QDRANT_API_KEY=your_secure_random_key_here
+   ```
+
+2. **Use Docker secrets** for sensitive data:
+   ```yaml
+   secrets:
+     - cctv_auth_token
+   ```
+
+3. **Add resource limits**:
+   ```yaml
+   deploy:
+     resources:
+       limits:
+         cpus: '1'
+         memory: 512M
+   ```
+
+4. **Enable health checks**:
+   ```yaml
+   healthcheck:
+     test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+     interval: 30s
+     timeout: 10s
+     retries: 3
+   ```
+
 ## Configuration
 
 Configure the application using environment variables in `.env`:

@@ -5,15 +5,21 @@ services:
     ports:
       - "8080:8080"
     environment:
-      # URL of your Python AI Service
-      # Use "host.docker.internal" if running on Mac/Windows host
-      # Use "172.17.0.1" (docker bridge ip) if running on Linux host
-      - AI_SERVICE_URL=
-
-      # URL of your Qdrant DB
+      # Qdrant Vector Database Configuration
       - QDRANT_URL=http://qdrant:6334
       - QDRANT_API_KEY=my-secret-api-key
       - COLLECTION_NAME=nt-cctv-vehicles
+
+      # AI Service Configuration
+      # Use "host.docker.internal:5090" if AI service runs on Mac/Windows host
+      # Use "172.17.0.1:5090" if running on Linux host
+      # Or use the actual service name if AI service is in docker-compose
+      - AI_SERVICE_URL=http://host.docker.internal:5090
+
+      # CCTV API Configuration
+      - CCTV_API_URL=https://ntvideo.totbb.net/video-metadata/train-data-condition
+      - CCTV_AUTH_TOKEN=${CCTV_AUTH_TOKEN}
+      - CCTV_ID=cctv01
     depends_on:
       - qdrant
     networks:

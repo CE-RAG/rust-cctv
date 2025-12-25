@@ -1,4 +1,4 @@
-use crate::models::search::{CctvImageData, SearchRequest, SearchResult};
+use crate::models::search::{AiLabel, CctvImageData, SearchRequest, SearchResult};
 use utoipa::OpenApi;
 
 // Re-export SwaggerUi for use in main.rs
@@ -15,6 +15,7 @@ pub use utoipa_swagger_ui::SwaggerUi;
             SearchRequest,
             SearchResult,
             CctvImageData,
+            AiLabel
         )
     ),
     tags(

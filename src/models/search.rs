@@ -3,13 +3,14 @@
 //! Request/Response structures for the API and external services.
 
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 // =============================================================================
 // Search API Models
 // =============================================================================
 
 /// Request for searching images with optional datetime filtering
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct SearchRequest {
     pub query: String,
     #[serde(default)]
@@ -21,7 +22,7 @@ pub struct SearchRequest {
 }
 
 /// Result from image search
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct SearchResult {
     pub filename: String,
     pub id: String,
@@ -41,7 +42,7 @@ pub struct EmbedResponse {
 }
 
 /// AI label classification result
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct AiLabel {
     pub class_name: String,
     pub confidence: f32,
@@ -87,7 +88,7 @@ pub struct CctvMetadataResponse {
 }
 
 /// Individual CCTV image metadata
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct CctvImageData {
     pub id: u32,
     pub cctv_id: String,

@@ -132,9 +132,30 @@ pub async fn insert_image(
     });
 
     // Get image embedding from AI service (using file_path)
-    let vector = match get_image_embedding(&state.http_client, &state.ai_service_url, &payload.file_path).await {
+    let batch_result = match get_image_embedding(
+        &state.http_client,
+        &state.ai_service_url,
+        vec![payload.file_path.clone()]
+    ).await {
         Ok(v) => v,
         Err(e) => return HttpResponse::InternalServerError().body(e),
+    };
+
+    // Extract the first result
+    let result = match batch_result.results.into_iter().next() {
+        Some(r) => r,
+        None => return HttpResponse::InternalServerError().body("No results returned from AI service"),
+    };
+
+    // Check for errors in the result
+    if let Some(error) = result.error {
+        return HttpResponse::InternalServerError().body(format!("AI Image Service error: {}", error));
+    }
+
+    // Get the embedding
+    let vector = match result.embedding {
+        Some(v) => v,
+        None => return HttpResponse::InternalServerError().body("No embedding returned from AI service"),
     };
 
     // Build payload using the builder pattern

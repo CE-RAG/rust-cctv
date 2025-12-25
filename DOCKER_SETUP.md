@@ -94,6 +94,10 @@ Added comprehensive Docker deployment section including:
 | `CCTV_API_URL` | No | `https://ntvideo.totbb.net/...` | CCTV metadata API endpoint |
 | `CCTV_AUTH_TOKEN` | **YES** | - | CCTV API authentication token |
 | `CCTV_ID` | No | `cctv01` | CCTV camera identifier |
+| `SERVER_PORT` | No | `8080` | HTTP server port |
+| `FETCH_LIMIT` | No | `20` | Max images per fetch |
+| `FETCH_DAYS_RANGE` | No | `2` | Days to look back |
+| `FETCH_EVERY_TIME` | No | `10` | Fetch interval (minutes) |
 
 ## Files Modified
 
@@ -108,9 +112,14 @@ After starting the services, you should see:
 ```
 ========================================
 🚀 Starting CCTV Search Backend
-   -> Qdrant URL : http://qdrant:6334
-   -> AI Service : http://host.docker.internal:5090
-   -> Collection : nt-cctv-vehicles
+   -> Server Port : 8080
+   -> Qdrant URL  : http://qdrant:6334
+   -> AI Service  : http://host.docker.internal:5090
+   -> Collection  : nt-cctv-vehicles
+   -> CCTV ID     : cctv01
+   -> Fetch Limit : 20 images
+   -> Fetch Range : 2 days
+   -> Fetch Every : 10 minutes
 ========================================
 Setting up collection...
 ✅ Collection is ready

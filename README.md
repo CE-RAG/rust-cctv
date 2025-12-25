@@ -221,27 +221,51 @@ Configure the application using environment variables in `.env`:
 - `CCTV_AUTH_TOKEN`: Bearer token for CCTV metadata API authentication **(required)**
 
 ### Optional (with defaults)
+
+#### Database
 - `QDRANT_URL`: URL of the Qdrant vector database (default: `http://localhost:6334`)
 - `QDRANT_API_KEY`: API key for Qdrant (default: `your_api_key_here`)
+- `COLLECTION_NAME`: Name of the Qdrant collection (default: `nt-cctv-vehicles`)
+
+#### AI Service
 - `AI_SERVICE_URL`: URL of the AI embedding service (default: `http://localhost:5090`)
-- `COLLECTION_NAME`: Name of the Qdrant collection (default: `ntcctvvehicles`)
+
+#### CCTV API
 - `CCTV_API_URL`: URL of the CCTV metadata API (default: `https://ntvideo.totbb.net/video-metadata/train-data-condition`)
 - `CCTV_ID`: CCTV camera ID to fetch images from (default: `cctv01`)
 
+#### Server
+- `SERVER_PORT`: HTTP server port (default: `8080`)
+
+#### Scheduler
+- `FETCH_LIMIT`: Maximum images to fetch per request (default: `20`)
+- `FETCH_DAYS_RANGE`: Days to look back for images (default: `2`)
+- `FETCH_EVERY_TIME`: Fetch interval in minutes (default: `10`)
+
 ### Example `.env` file
 ```bash
-# Qdrant Configuration
+# === Required Configuration ===
+CCTV_AUTH_TOKEN=your_bearer_token_here
+
+# === Database Configuration ===
 QDRANT_URL=http://localhost:6334
 QDRANT_API_KEY=your_qdrant_api_key
-COLLECTION_NAME=ntcctvvehicles
+COLLECTION_NAME=nt-cctv-vehicles
 
-# AI Service Configuration
+# === AI Service Configuration ===
 AI_SERVICE_URL=http://localhost:5090
 
-# CCTV API Configuration
+# === CCTV API Configuration ===
 CCTV_API_URL=https://ntvideo.totbb.net/video-metadata/train-data-condition
-CCTV_AUTH_TOKEN=your_bearer_token_here
 CCTV_ID=cctv01
+
+# === Server Configuration ===
+SERVER_PORT=8080
+
+# === Scheduler Configuration ===
+FETCH_LIMIT=20
+FETCH_DAYS_RANGE=2
+FETCH_EVERY_TIME=10
 ```
 
 ## Collection and Index Setup
@@ -258,9 +282,9 @@ The application includes a background scheduler that automatically fetches and i
 
 ### How It Works
 
-1. **Scheduler**: Runs every 10 minutes (configurable via cron expression in `src/scheduler.rs`)
-2. **Fetch Limit**: Fetches up to 20 images per run
-3. **Date Range**: Queries images from the last 2 days
+1. **Scheduler**: Runs every N minutes (configurable via `FETCH_EVERY_TIME` env var, default: 10)
+2. **Fetch Limit**: Fetches up to N images per run (configurable via `FETCH_LIMIT` env var, default: 20)
+3. **Date Range**: Queries images from the last N days (configurable via `FETCH_DAYS_RANGE` env var, default: 2)
 4. **Processing**: For each fetched image:
    - Downloads the image metadata from the CCTV API
    - Generates vector embeddings via the AI service
@@ -285,23 +309,14 @@ The scheduler provides detailed logging:
 
 ### Configuration
 
-The scheduler is automatically configured using environment variables (see Configuration section).
+All scheduler settings are now configurable via environment variables:
 
-To change the schedule interval, modify the cron expression in `src/scheduler.rs`:
-```rust
-// Current: Every 10 minutes
-let job = Job::new_async("0 */10 * * * *", move |_uuid, _l| {
-    // ... job logic
-});
-
-// Examples:
-// Every 5 minutes:  "0 */5 * * * *"
-// Every 15 minutes: "0 */15 * * * *"
-// Every hour:       "0 0 * * * *"
-// Every 30 minutes: "0 */30 * * * *"
+```bash
+# In your .env file:
+FETCH_LIMIT=20        # Images per fetch
+FETCH_DAYS_RANGE=2    # Days to look back
+FETCH_EVERY_TIME=10   # Minutes between runs
 ```
-
-The scheduler starts automatically when the application launches and runs in the background.
 
 ## API Endpoints
 
@@ -438,9 +453,14 @@ The search endpoint supports filtering by datetime range using RFC 3339 format:
    ```
    ========================================
    🚀 Starting CCTV Search Backend
-      -> Qdrant URL : http://localhost:6334
-      -> AI Service : http://localhost:5090
-      -> Collection : ntcctvvehicles
+      -> Server Port : 8080
+      -> Qdrant URL  : http://localhost:6334
+      -> AI Service  : http://localhost:5090
+      -> Collection  : nt-cctv-vehicles
+      -> CCTV ID     : cctv01
+      -> Fetch Limit : 20 images
+      -> Fetch Range : 2 days
+      -> Fetch Every : 10 minutes
    ========================================
    Setting up collection...
    ✅ Collection is ready

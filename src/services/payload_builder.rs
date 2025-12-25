@@ -35,6 +35,7 @@ impl PayloadBuilder {
 
     /// Insert an optional string value (skips if None)
     #[inline]
+    #[allow(dead_code)]
     pub fn string_opt(self, key: impl Into<String>, value: Option<impl Into<String>>) -> Self {
         match value {
             Some(v) => self.string(key, v),
@@ -56,6 +57,7 @@ impl PayloadBuilder {
 
     /// Insert an optional integer value (skips if None)
     #[inline]
+    #[allow(dead_code)]
     pub fn integer_opt(self, key: impl Into<String>, value: Option<i64>) -> Self {
         match value {
             Some(v) => self.integer(key, v),

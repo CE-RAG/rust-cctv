@@ -13,7 +13,7 @@ mod models;
 mod scheduler;
 mod services;
 
-use config::{defaults, Config};
+use config::{technical, Config};
 use scheduler::{start_scheduler, SchedulerContext};
 
 #[actix_web::main]
@@ -50,6 +50,7 @@ async fn main() -> std::io::Result<()> {
     // Start HTTP server
     let ai_service_url = config.ai_service_url.clone();
     let collection_name = config.collection_name.clone();
+    let server_port = config.server_port;
 
     HttpServer::new(move || {
         App::new()
@@ -62,7 +63,7 @@ async fn main() -> std::io::Result<()> {
             .service(handlers::search_vehicles)
             .service(handlers::insert_image)
     })
-    .bind(("0.0.0.0", defaults::SERVER_PORT))?
+    .bind(("0.0.0.0", server_port))?
     .run()
     .await
 }
@@ -71,7 +72,7 @@ async fn main() -> std::io::Result<()> {
 async fn setup_qdrant(qdrant: &Arc<Qdrant>, collection_name: &str) {
     println!("Setting up collection...");
 
-    match services::ensure_collection_exists(qdrant, collection_name, defaults::VECTOR_SIZE).await {
+    match services::ensure_collection_exists(qdrant, collection_name, technical::VECTOR_SIZE).await {
         Ok(_) => println!("✅ Collection is ready"),
         Err(e) => println!("⚠️  Warning: {}", e),
     }

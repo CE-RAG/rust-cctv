@@ -135,3 +135,40 @@ src/
 3. Add request validation middleware
 4. Consider using `thiserror` for better error handling
 5. Add API documentation with OpenAPI/Swagger
+
+---
+
+## v2.1 Updates - Environment Variable Configuration
+
+### Changes Made
+
+#### `src/config.rs`
+- **Moved `VECTOR_SIZE`** from `defaults` to new `technical` module (should not be changed without model retraining)
+- **Added new Config fields**: `server_port`, `fetch_limit`, `fetch_days_range`, `fetch_every_time`
+- **Added `parse_env<T>()` helper**: Generic function to parse environment variables with type conversion and defaults
+- **Enhanced `print_summary()`**: Now displays all configurable settings
+
+#### `src/main.rs`
+- Updated to use `config.server_port` instead of `defaults::SERVER_PORT`
+- Changed `defaults::VECTOR_SIZE` to `technical::VECTOR_SIZE`
+
+#### `src/scheduler.rs`
+- Updated to use `ctx.config.fetch_every_time` instead of `defaults::FETCH_EVERY_TIME`
+- Updated to use `ctx.config.fetch_days_range` instead of `defaults::FETCH_DAYS_RANGE`
+- Updated to use `ctx.config.fetch_limit` instead of `defaults::FETCH_LIMIT`
+
+### New Environment Variables
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `SERVER_PORT` | u16 | 8080 | HTTP server port |
+| `FETCH_LIMIT` | u32 | 20 | Max images per fetch |
+| `FETCH_DAYS_RANGE` | i64 | 2 | Days to look back |
+| `FETCH_EVERY_TIME` | i64 | 10 | Fetch interval (minutes) |
+
+### Benefits
+
+1. **No recompilation needed**: Change scheduler settings via `.env` and restart
+2. **Environment-specific configs**: Different values for dev/staging/prod
+3. **Docker-friendly**: Override values easily with environment variables
+4. **Type-safe**: Proper parsing with helpful error messages

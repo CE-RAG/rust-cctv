@@ -2,7 +2,7 @@
 //!
 //! Handles scheduled tasks for fetching and processing CCTV images.
 
-use crate::config::{defaults, Config};
+use crate::config::Config;
 use crate::models::search::CctvImageData;
 use crate::services::{fetch_cctv_training_data, get_image_embedding, api_datetime_to_rfc3339, PayloadBuilder};
 use chrono::Duration;
@@ -37,7 +37,10 @@ pub async fn start_scheduler(ctx: SchedulerContext) {
             .await
             .expect("Failed to create scheduler");
 
-        let job = Job::new_async("0 */10 * * * *", move |_uuid, _l| {
+        // Build cron expression dynamically based on FETCH_EVERY_TIME
+        let cron_expr = format!("0 */{} * * * *", ctx.config.fetch_every_time);
+        
+        let job = Job::new_async(cron_expr.as_str(), move |_uuid, _l| {
             let ctx = ctx.clone();
             Box::pin(async move {
                 run_fetch_task(&ctx).await;
@@ -48,7 +51,7 @@ pub async fn start_scheduler(ctx: SchedulerContext) {
         sched.add(job).await.expect("Failed to add job");
         sched.start().await.expect("Failed to start scheduler");
 
-        println!("✅ Background scheduler started (every 10 minutes)");
+        println!("✅ Background scheduler started (every {} minutes)", ctx.config.fetch_every_time);
 
         // Keep scheduler running
         loop {
@@ -64,7 +67,7 @@ async fn run_fetch_task(ctx: &SchedulerContext) {
     // Calculate time range in Thailand timezone
     let now = chrono::Utc::now().with_timezone(&Bangkok);
     let date_stop = now.format("%Y-%m-%d %H:%M:%S").to_string();
-    let date_start = (now - Duration::days(defaults::FETCH_DAYS_RANGE))
+    let date_start = (now - Duration::days(ctx.config.fetch_days_range))
         .format("%Y-%m-%d %H:%M:%S")
         .to_string();
 
@@ -75,7 +78,7 @@ async fn run_fetch_task(ctx: &SchedulerContext) {
         &ctx.config.cctv_id,
         &date_start,
         &date_stop,
-        defaults::FETCH_LIMIT,
+        ctx.config.fetch_limit,
     )
     .await
     {
@@ -90,29 +93,82 @@ async fn run_fetch_task(ctx: &SchedulerContext) {
     }
 }
 
-/// Process a batch of images
+/// Process a batch of images using batch embedding
 async fn process_images(ctx: &SchedulerContext, images: &[CctvImageData]) {
-    for (idx, image) in images.iter().enumerate() {
+    if images.is_empty() {
+        return;
+    }
+
+    println!("   🚀 Getting batch embeddings for {} images...", images.len());
+
+    // Collect all image paths
+    let image_paths: Vec<String> = images.iter()
+        .map(|img| img.file_path.clone())
+        .collect();
+
+    // Get batch embeddings
+    let batch_result = match get_image_embedding(
+        &ctx.http_client,
+        &ctx.config.ai_service_url,
+        image_paths.clone()
+    ).await {
+        Ok(result) => result,
+        Err(e) => {
+            println!("   ❌ Failed to get batch embeddings: {}", e);
+            return;
+        }
+    };
+
+    println!("   ✅ Received {} embedding results", batch_result.results.len());
+
+    // Process each result and store in Qdrant
+    for (idx, result) in batch_result.results.iter().enumerate() {
+        // Find the corresponding image data
+        let image = match images.iter().find(|img| img.file_path == result.path) {
+            Some(img) => img,
+            None => {
+                println!("   ⚠️  Could not find image data for path: {}", result.path);
+                continue;
+            }
+        };
+
         println!(
             "   [{}/{}] Processing: {}",
             idx + 1,
-            images.len(),
+            batch_result.results.len(),
             image.filename
         );
 
-        if let Err(e) = process_single_image(ctx, image).await {
+        // Check if this result has an error
+        if let Some(ref error) = result.error {
+            println!("      ❌ {}", error);
+            continue;
+        }
+
+        // Check if embedding is present
+        let vector = match &result.embedding {
+            Some(v) => v.clone(),
+            None => {
+                println!("      ❌ No embedding in result");
+                continue;
+            }
+        };
+
+        // Build payload and store in Qdrant
+        if let Err(e) = store_image_in_qdrant(ctx, image, vector).await {
             println!("      ❌ {}", e);
+        } else {
+            println!("      ✅ Inserted successfully");
         }
     }
 }
 
-/// Process a single image: get embedding and store in Qdrant
-async fn process_single_image(ctx: &SchedulerContext, image: &CctvImageData) -> Result<(), String> {
-    // Get image embedding
-    let vector = get_image_embedding(&ctx.http_client, &ctx.config.ai_service_url, &image.file_path)
-        .await
-        .map_err(|e| format!("Failed to get embedding: {}", e))?;
-
+/// Store a single image with its embedding in Qdrant
+async fn store_image_in_qdrant(
+    ctx: &SchedulerContext,
+    image: &CctvImageData,
+    vector: Vec<f32>
+) -> Result<(), String> {
     // Build payload using the builder
     let datetime_rfc3339 = api_datetime_to_rfc3339(&image.date, &image.time);
     
@@ -155,6 +211,5 @@ async fn process_single_image(ctx: &SchedulerContext, image: &CctvImageData) -> 
         .await
         .map_err(|e| format!("Failed to insert: {}", e))?;
 
-    println!("      ✅ Inserted successfully");
     Ok(())
 }

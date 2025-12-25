@@ -47,6 +47,23 @@ pub struct AiLabel {
     pub confidence: f32,
 }
 
+/// Individual result in batch embedding response
+#[derive(Debug, Deserialize)]
+pub struct BatchImageEmbeddingResult {
+    pub path: String,
+    pub embedding: Option<Vec<f32>>,
+    pub error: Option<String>,
+}
+
+/// Response from batch image embedding API
+#[derive(Debug, Deserialize)]
+pub struct BatchImageEmbeddingResponse {
+    #[serde(rename = "type")]
+    #[allow(dead_code)]
+    pub response_type: String,
+    pub results: Vec<BatchImageEmbeddingResult>,
+}
+
 // =============================================================================
 // CCTV Metadata API Models
 // =============================================================================
@@ -64,6 +81,7 @@ pub struct CctvMetadataRequest {
 #[derive(Debug, Deserialize)]
 pub struct CctvMetadataResponse {
     pub success: bool,
+    #[allow(dead_code)]
     pub count: u32,
     pub data: Vec<CctvImageData>,
 }

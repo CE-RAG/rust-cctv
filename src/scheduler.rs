@@ -37,8 +37,11 @@ pub async fn start_scheduler(ctx: SchedulerContext) {
             .await
             .expect("Failed to create scheduler");
 
+        // Save config values before moving ctx into closure
+        let fetch_every_time = ctx.config.fetch_every_time;
+        
         // Build cron expression dynamically based on FETCH_EVERY_TIME
-        let cron_expr = format!("0 */{} * * * *", ctx.config.fetch_every_time);
+        let cron_expr = format!("0 */{} * * * *", fetch_every_time);
         
         let job = Job::new_async(cron_expr.as_str(), move |_uuid, _l| {
             let ctx = ctx.clone();
@@ -51,7 +54,7 @@ pub async fn start_scheduler(ctx: SchedulerContext) {
         sched.add(job).await.expect("Failed to add job");
         sched.start().await.expect("Failed to start scheduler");
 
-        println!("✅ Background scheduler started (every {} minutes)", ctx.config.fetch_every_time);
+        println!("✅ Background scheduler started (every {} minutes)", fetch_every_time);
 
         // Keep scheduler running
         loop {

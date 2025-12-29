@@ -2,19 +2,23 @@
 //!
 //! A high-performance REST API for vehicle image search using vector embeddings.
 
-use actix_web::{web, App, HttpServer};
+use actix_web::{App, HttpServer, web};
 use dotenv::dotenv;
 use qdrant_client::Qdrant;
 use std::sync::Arc;
 
 mod config;
+mod docs;
 mod handlers;
 mod models;
 mod scheduler;
 mod services;
 
+use docs::{ApiDoc, SwaggerUi};
+use utoipa::OpenApi;
+
 use config::{technical, Config};
-use scheduler::{start_scheduler, SchedulerContext};
+use scheduler::{SchedulerContext, start_scheduler};
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -37,11 +41,7 @@ async fn main() -> std::io::Result<()> {
     setup_qdrant(&qdrant, &config.collection_name).await;
 
     // Start background scheduler
-    let scheduler_ctx = SchedulerContext::new(
-        qdrant.clone(),
-        http_client.clone(),
-        config.clone(),
-    );
+    let scheduler_ctx = SchedulerContext::new(qdrant.clone(), http_client.clone(), config.clone());
     start_scheduler(scheduler_ctx).await;
 
     // Give scheduler time to initialize
@@ -60,6 +60,10 @@ async fn main() -> std::io::Result<()> {
                 ai_service_url: ai_service_url.clone(),
                 collection_name: collection_name.clone(),
             }))
+            .service(
+                SwaggerUi::new("/swagger-ui/{_:.*}")
+                    .url("/api-docs/openapi.json", ApiDoc::openapi()),
+            )
             .service(handlers::search_vehicles)
             .service(handlers::insert_image)
     })

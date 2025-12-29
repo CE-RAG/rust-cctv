@@ -4,14 +4,15 @@
 
 use crate::models::search::{CctvImageData, SearchRequest, SearchResult};
 use crate::services::{
-    api_datetime_to_rfc3339, extract_string, get_image_embedding, get_text_embedding,
-    rfc3339_to_timestamp, PayloadBuilder,
+    PayloadBuilder, api_datetime_to_rfc3339, extract_string, get_image_embedding,
+    get_text_embedding, rfc3339_to_timestamp,
 };
-use actix_web::{post, web, HttpResponse, Responder};
+use actix_web::{HttpResponse, Responder, post, web};
+use qdrant_client::Qdrant;
 use qdrant_client::qdrant::{
     Condition, DatetimeRange, Filter, PointStruct, SearchPoints, UpsertPoints,
 };
-use qdrant_client::Qdrant;
+use utoipa;
 
 use std::sync::Arc;
 
@@ -36,16 +37,28 @@ fn point_id_to_string(point_id: &qdrant_client::qdrant::PointId) -> String {
 }
 
 /// Handler for searching vehicles with optional datetime filtering
+#[utoipa::path(
+    post,
+    path = "/search",
+    request_body = SearchRequest,
+    responses(
+        (status = 200, description = "Search completed successfully", body = [SearchResult]),
+        (status = 400, description = "Bad request"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "Search API"
+)]
 #[post("/search")]
 pub async fn search_vehicles(
     state: web::Data<AppState>,
     payload: web::Json<SearchRequest>,
 ) -> impl Responder {
     // Get text embedding from AI service
-    let vector = match get_text_embedding(&state.http_client, &state.ai_service_url, &payload.query).await {
-        Ok(v) => v,
-        Err(e) => return HttpResponse::InternalServerError().body(e),
-    };
+    let vector =
+        match get_text_embedding(&state.http_client, &state.ai_service_url, &payload.query).await {
+            Ok(v) => v,
+            Err(e) => return HttpResponse::InternalServerError().body(e),
+        };
 
     // Build search request
     let filter = match build_datetime_filter(&payload) {
@@ -71,7 +84,11 @@ pub async fn search_vehicles(
                 .into_iter()
                 .map(|point| SearchResult {
                     filename: extract_string(&point.payload, "filename"),
-                    id: point.id.as_ref().map(point_id_to_string).unwrap_or_default(),
+                    id: point
+                        .id
+                        .as_ref()
+                        .map(point_id_to_string)
+                        .unwrap_or_default(),
                     score: point.score,
                     datetime: extract_string(&point.payload, "datetime"),
                 })
@@ -105,8 +122,7 @@ fn build_datetime_filter(payload: &SearchRequest) -> Result<Option<Filter>, Stri
     if let Some(end) = &payload.end_date {
         if !end.is_empty() {
             datetime_range.lte = Some(
-                rfc3339_to_timestamp(end)
-                    .map_err(|e| format!("Invalid end_date format: {}", e))?,
+                rfc3339_to_timestamp(end).map_err(|e| format!("Invalid end_date format: {}", e))?,
             );
         }
     }
@@ -118,6 +134,16 @@ fn build_datetime_filter(payload: &SearchRequest) -> Result<Option<Filter>, Stri
 }
 
 /// Handler for inserting a new image with metadata
+#[utoipa::path(
+    post,
+    path = "/insert_image",
+    request_body = CctvImageData,
+    responses(
+        (status = 200, description = "Image inserted successfully", body = Value),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "Insertion API"
+)]
 #[post("/insert_image")]
 pub async fn insert_image(
     state: web::Data<AppState>,
@@ -127,9 +153,10 @@ pub async fn insert_image(
     let datetime_rfc3339 = api_datetime_to_rfc3339(&payload.date, &payload.time);
 
     // Auto-generate createdAt if not provided
-    let created_at = payload.created_at.clone().unwrap_or_else(|| {
-        chrono::Utc::now().to_rfc3339()
-    });
+    let created_at = payload
+        .created_at
+        .clone()
+        .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
 
     // Get image embedding from AI service (using file_path)
     let batch_result = match get_image_embedding(

@@ -2,13 +2,18 @@
 //!
 //! Handles scheduled tasks for fetching and processing CCTV images.
 
+use crate::clients::cctv_client::CctvApi;
 use crate::config::Config;
-use crate::models::search::CctvImageData;
-use crate::services::{fetch_cctv_training_data, get_image_embedding, api_datetime_to_rfc3339, PayloadBuilder};
+use crate::models::search::{CctvImageData, CctvMetadataRequest};
+use crate::services::cctv_service::CctvService;
+use crate::services::{PayloadBuilder, api_datetime_to_rfc3339, get_image_embedding};
 use chrono::Duration;
 use chrono_tz::Asia::Bangkok;
-use qdrant_client::qdrant::{PointStruct, UpsertPoints};
+//
+use chrono::{DateTime, Utc};
+
 use qdrant_client::Qdrant;
+use qdrant_client::qdrant::{PointStruct, UpsertPoints};
 use std::sync::Arc;
 use tokio_cron_scheduler::{Job, JobScheduler};
 
@@ -18,14 +23,27 @@ pub struct SchedulerContext {
     pub qdrant: Arc<Qdrant>,
     pub http_client: reqwest::Client,
     pub config: Config,
+    pub cctv_service: CctvService<CctvApi>,
 }
 
 impl SchedulerContext {
     pub fn new(qdrant: Arc<Qdrant>, http_client: reqwest::Client, config: Config) -> Self {
+        // Create CCTV API client with automatic token handling
+        let cctv_client = CctvApi::new(
+            config.cctv_api_url.clone(),
+            config.cctv_authorize_code.clone(),
+            config.cctv_user_auth.clone(),
+            config.cctv_client_id.clone(),
+        );
+
+        // Create CCTV service
+        let cctv_service = CctvService::new(cctv_client);
+
         Self {
             qdrant,
             http_client,
             config,
+            cctv_service,
         }
     }
 }
@@ -39,10 +57,10 @@ pub async fn start_scheduler(ctx: SchedulerContext) {
 
         // Save config values before moving ctx into closure
         let fetch_every_time = ctx.config.fetch_every_time;
-        
+
         // Build cron expression dynamically based on FETCH_EVERY_TIME
         let cron_expr = format!("0 */{} * * * *", fetch_every_time);
-        
+
         let job = Job::new_async(cron_expr.as_str(), move |_uuid, _l| {
             let ctx = ctx.clone();
             Box::pin(async move {
@@ -54,7 +72,10 @@ pub async fn start_scheduler(ctx: SchedulerContext) {
         sched.add(job).await.expect("Failed to add job");
         sched.start().await.expect("Failed to start scheduler");
 
-        println!("✅ Background scheduler started (every {} minutes)", fetch_every_time);
+        println!(
+            "✅ Background scheduler started (every {} minutes)",
+            fetch_every_time
+        );
 
         // Keep scheduler running
         loop {
@@ -68,31 +89,66 @@ async fn run_fetch_task(ctx: &SchedulerContext) {
     println!("\n⏰ Running scheduled CCTV image fetch...");
 
     // Calculate time range in Thailand timezone
-    let now = chrono::Utc::now().with_timezone(&Bangkok);
+    // let now = chrono::Utc::now().with_timezone(&Bangkok);
+    let now = "2025-12-18T10:20:01.550Z"
+        .parse::<DateTime<Utc>>()
+        .expect("invalid datetime")
+        .with_timezone(&Bangkok);
+    println!("📡 Test Datetime: {}", now);
     let date_stop = now.format("%Y-%m-%d %H:%M:%S").to_string();
     let date_start = (now - Duration::days(ctx.config.fetch_days_range))
         .format("%Y-%m-%d %H:%M:%S")
         .to_string();
-
-    // Fetch images from CCTV API
-    match fetch_cctv_training_data(
-        &ctx.config.cctv_api_url,
-        &ctx.config.cctv_auth_token,
-        &ctx.config.cctv_id,
-        &date_start,
-        &date_stop,
-        ctx.config.fetch_limit,
-    )
-    .await
-    {
-        Ok(images) => {
-            println!("📥 Processing {} images...", images.len());
-            process_images(ctx, &images).await;
-            println!("✅ Scheduled task completed\n");
+    println!("📅 Date Start: {}", date_start);
+    println!("📅 Date Stop: {}", date_stop);
+    // Get list of all CCTV IDs
+    let cctv_ids = match ctx.cctv_service.list_cctv().await {
+        Ok(ids) => {
+            println!("📹 Found {} CCTV cameras", ids.len());
+            ids
         }
         Err(e) => {
-            println!("❌ Failed to fetch CCTV images: {}\n", e);
+            println!("❌ Failed to get CCTV list: {}", e);
+            vec![]
         }
+    };
+
+    let mut all_images = Vec::new();
+
+    // Fetch images from each CCTV
+    for cctv_id in cctv_ids {
+        println!("📡 Fetching data from CCTV: {}", cctv_id);
+
+        // Create request for training data
+        let request = CctvMetadataRequest {
+            cctv_id: cctv_id.clone(),
+            date_start: date_start.clone(),
+            date_stop: date_stop.clone(),
+            limit: ctx.config.fetch_limit,
+        };
+
+        // Fetch images using the CCTV service
+        match ctx.cctv_service.fetch_train_data(&request).await {
+            Ok(images) => {
+                println!("   → Got {} images from CCTV: {}", images.len(), cctv_id);
+                all_images.extend(images);
+            }
+            Err(e) => {
+                println!(
+                    "   ❌ Failed to fetch training data from CCTV {}: {}",
+                    cctv_id, e
+                );
+            }
+        }
+    }
+
+    // Process all collected images
+    if !all_images.is_empty() {
+        println!("📥 Processing {} total images...", all_images.len());
+        process_images(ctx, &all_images).await;
+        println!("✅ Scheduled task completed\n");
+    } else {
+        println!("⚠️  No images were fetched from any CCTV\n");
     }
 }
 
@@ -102,19 +158,22 @@ async fn process_images(ctx: &SchedulerContext, images: &[CctvImageData]) {
         return;
     }
 
-    println!("   🚀 Getting batch embeddings for {} images...", images.len());
+    println!(
+        "   🚀 Getting batch embeddings for {} images...",
+        images.len()
+    );
 
     // Collect all image paths
-    let image_paths: Vec<String> = images.iter()
-        .map(|img| img.file_path.clone())
-        .collect();
+    let image_paths: Vec<String> = images.iter().map(|img| img.file_path.clone()).collect();
 
     // Get batch embeddings
     let batch_result = match get_image_embedding(
         &ctx.http_client,
         &ctx.config.ai_service_url,
-        image_paths.clone()
-    ).await {
+        image_paths.clone(),
+    )
+    .await
+    {
         Ok(result) => result,
         Err(e) => {
             println!("   ❌ Failed to get batch embeddings: {}", e);
@@ -122,7 +181,10 @@ async fn process_images(ctx: &SchedulerContext, images: &[CctvImageData]) {
         }
     };
 
-    println!("   ✅ Received {} embedding results", batch_result.results.len());
+    println!(
+        "   ✅ Received {} embedding results",
+        batch_result.results.len()
+    );
 
     // Process each result and store in Qdrant
     for (idx, result) in batch_result.results.iter().enumerate() {
@@ -170,15 +232,16 @@ async fn process_images(ctx: &SchedulerContext, images: &[CctvImageData]) {
 async fn store_image_in_qdrant(
     ctx: &SchedulerContext,
     image: &CctvImageData,
-    vector: Vec<f32>
+    vector: Vec<f32>,
 ) -> Result<(), String> {
     // Build payload using the builder
     let datetime_rfc3339 = api_datetime_to_rfc3339(&image.date, &image.time);
-    
+
     // Use provided created_at or generate current timestamp
-    let created_at = image.created_at.clone().unwrap_or_else(|| {
-        chrono::Utc::now().to_rfc3339()
-    });
+    let created_at = image
+        .created_at
+        .clone()
+        .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
 
     let mut payload_builder = PayloadBuilder::new()
         .string("image", &image.file_path)

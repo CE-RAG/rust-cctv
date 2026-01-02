@@ -89,18 +89,11 @@ async fn run_fetch_task(ctx: &SchedulerContext) {
     println!("\n⏰ Running scheduled CCTV image fetch...");
 
     // Calculate time range in Thailand timezone
-    // let now = chrono::Utc::now().with_timezone(&Bangkok);
-    let now = "2025-12-18T10:20:01.550Z"
-        .parse::<DateTime<Utc>>()
-        .expect("invalid datetime")
-        .with_timezone(&Bangkok);
-    println!("📡 Test Datetime: {}", now);
+    let now = chrono::Utc::now().with_timezone(&Bangkok);
     let date_stop = now.format("%Y-%m-%d %H:%M:%S").to_string();
     let date_start = (now - Duration::days(ctx.config.fetch_days_range))
         .format("%Y-%m-%d %H:%M:%S")
         .to_string();
-    println!("📅 Date Start: {}", date_start);
-    println!("📅 Date Stop: {}", date_stop);
     // Get list of all CCTV IDs
     let cctv_ids = match ctx.cctv_service.list_cctv().await {
         Ok(ids) => {

@@ -1,68 +1,92 @@
+//! CCTV Search Backend
+//!
+//! A high-performance REST API for vehicle image search using vector embeddings.
+
 use actix_web::{App, HttpServer, web};
 use dotenv::dotenv;
 use qdrant_client::Qdrant;
-use std::env;
 use std::sync::Arc;
 
+mod clients;
+mod config;
+mod docs;
 mod handlers;
 mod models;
+mod scheduler;
 mod services;
+
+use docs::{ApiDoc, SwaggerUi};
+use utoipa::OpenApi;
+
+use config::{Config, technical};
+use scheduler::{SchedulerContext, start_scheduler};
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    // Load environment variables
     dotenv().ok();
 
-    // Load configuration from environment variables with defaults
-    let qdrant_url = env::var("QDRANT_URL").unwrap_or_else(|_| "http://localhost:6334".to_string());
-    let ai_service_url =
-        env::var("AI_SERVICE_URL").unwrap_or_else(|_| "http://localhost:5090".to_string());
-    let collection_name =
-        env::var("COLLECTION_NAME").unwrap_or_else(|_| "ntcctvvehicles".to_string());
-    let qdrant_api_key =
-        env::var("QDRANT_API_KEY").unwrap_or_else(|_| "your_api_key_here".to_string());
+    // Load configuration
+    let config = Config::from_env().expect("Failed to load configuration");
+    config.print_summary();
 
-    println!("========================================");
-    println!("🚀 Starting CCTV Search Backend");
-    println!("   -> Qdrant URL : {}", qdrant_url);
-    println!("   -> AI Service : {}", ai_service_url);
-    println!("   -> Collection : {}", collection_name);
-    println!("========================================");
-
-    // Configure Qdrant client
-    let client = Qdrant::from_url(&qdrant_url)
-        .api_key(qdrant_api_key)
+    // Initialize Qdrant client
+    let qdrant = Qdrant::from_url(&config.qdrant_url)
+        .api_key(config.qdrant_api_key.clone())
         .build()
         .expect("Failed to initialize Qdrant client");
 
-    // Create shared state
-    let qdrant_arc = Arc::new(client);
+    let qdrant = Arc::new(qdrant);
     let http_client = reqwest::Client::new();
 
-    // Ensure collection exists and create datetime field index
+    // Setup Qdrant collection
+    setup_qdrant(&qdrant, &config.collection_name).await;
+
+    // Start background scheduler
+    let scheduler_ctx = SchedulerContext::new(qdrant.clone(), http_client.clone(), config.clone());
+    start_scheduler(scheduler_ctx).await;
+
+    // Give scheduler time to initialize
+    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+
+    // Start HTTP server
+    let ai_service_url = config.ai_service_url.clone();
+    let collection_name = config.collection_name.clone();
+    let server_port = config.server_port;
+
+    HttpServer::new(move || {
+        App::new()
+            .app_data(web::Data::new(handlers::AppState {
+                qdrant: qdrant.clone(),
+                http_client: http_client.clone(),
+                ai_service_url: ai_service_url.clone(),
+                collection_name: collection_name.clone(),
+            }))
+            .service(
+                SwaggerUi::new("/swagger-ui/{_:.*}")
+                    .url("/api-docs/openapi.json", ApiDoc::openapi()),
+            )
+            .service(handlers::search_vehicles)
+            .service(handlers::insert_image)
+    })
+    .bind(("0.0.0.0", server_port))?
+    .run()
+    .await
+}
+
+/// Setup Qdrant collection and indices
+async fn setup_qdrant(qdrant: &Arc<Qdrant>, collection_name: &str) {
     println!("Setting up collection...");
-    match services::ensure_collection_exists(&qdrant_arc, &collection_name, 768).await {
+
+    match services::ensure_collection_exists(qdrant, collection_name, technical::VECTOR_SIZE).await
+    {
         Ok(_) => println!("✅ Collection is ready"),
         Err(e) => println!("⚠️  Warning: {}", e),
     }
 
     println!("Creating datetime field index...");
-    match services::create_datetime_index(&qdrant_arc, &collection_name).await {
+
+    match services::create_datetime_index(qdrant, collection_name).await {
         Ok(_) => println!("✅ Datetime field index created successfully"),
         Err(e) => println!("⚠️  Warning: {}", e),
     }
-    HttpServer::new(move || {
-        App::new()
-            .app_data(web::Data::new(handlers::AppState {
-                qdrant: qdrant_arc.clone(),
-                http_client: http_client.clone(),
-                ai_service_url: ai_service_url.clone(),
-                collection_name: collection_name.clone(),
-            }))
-            .service(handlers::search_vehicles)
-            .service(handlers::insert_image)
-    })
-    .bind(("0.0.0.0", 8080))?
-    .run()
-    .await
 }

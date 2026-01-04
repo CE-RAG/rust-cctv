@@ -1,42 +1,105 @@
+//! Data Models
+//!
+//! Request/Response structures for the API and external services.
+
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
+
+// =============================================================================
+// Search API Models
+// =============================================================================
 
 /// Request for searching images with optional datetime filtering
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct SearchRequest {
     pub query: String,
+    #[serde(default)]
     pub top_k: Option<u64>,
-    pub start_date: Option<String>, // RFC 3339 format
-    pub end_date: Option<String>,   // RFC 3339 format
-}
-
-/// Request to insert a new image
-#[derive(Deserialize)]
-pub struct InsertImageRequest {
-    pub image: String, // URL or filename
+    /// Start date filter in RFC 3339 format
+    pub start_date: Option<String>,
+    /// End date filter in RFC 3339 format
+    pub end_date: Option<String>,
 }
 
 /// Result from image search
-#[derive(Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct SearchResult {
     pub filename: String,
-    pub caption: String,
+    pub id: String,
     pub score: f32,
-    pub datetime: Option<String>,
+    pub datetime: String,
 }
 
+// =============================================================================
+// AI Service Models
+// =============================================================================
+
 /// Response from AI embedding service
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct EmbedResponse {
     #[serde(alias = "embedding")]
     pub vector: Vec<f32>,
 }
 
-/// Parsed components from CCTV filename
-#[derive(Debug)]
-pub struct ParsedFilename {
-    pub camera_id: String,
+/// AI label classification result
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct AiLabel {
+    pub class_name: String,
+    pub confidence: f32,
+}
+
+/// Individual result in batch embedding response
+#[derive(Debug, Deserialize)]
+pub struct BatchImageEmbeddingResult {
+    pub path: String,
+    pub embedding: Option<Vec<f32>>,
+    pub error: Option<String>,
+}
+
+/// Response from batch image embedding API
+#[derive(Debug, Deserialize)]
+pub struct BatchImageEmbeddingResponse {
+    #[serde(rename = "type")]
+    #[allow(dead_code)]
+    pub response_type: String,
+    pub results: Vec<BatchImageEmbeddingResult>,
+}
+
+// =============================================================================
+// CCTV Metadata API Models
+// =============================================================================
+
+/// Request to fetch training data from CCTV metadata API
+#[derive(Debug, Serialize)]
+pub struct CctvMetadataRequest {
+    pub cctv_id: String,
+    pub date_start: String,
+    pub date_stop: String,
+    pub limit: u32,
+}
+
+/// Response wrapper from CCTV metadata API
+#[derive(Debug, Deserialize)]
+pub struct CctvMetadataResponse {
+    pub success: bool,
+    #[allow(dead_code)]
+    pub count: u32,
+    pub data: Vec<CctvImageData>,
+}
+
+/// Individual CCTV image metadata
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct CctvImageData {
+    pub id: u32,
+    pub cctv_id: String,
     pub date: String,
     pub time: String,
-    #[allow(dead_code)]
-    pub sequence: String,
+    pub frame: u32,
+    pub vehicle_type: u32,
+    pub yolo_id: u32,
+    pub filename: String,
+    pub file_path: String,
+    pub ai_label: Option<AiLabel>,
+    #[serde(rename = "createdAt", default)]
+    pub created_at: Option<String>,
 }

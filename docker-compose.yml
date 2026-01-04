@@ -3,17 +3,32 @@ services:
     build: .
     container_name: rust_backend_api
     ports:
-      - "8080:8080"
+      - "${SERVER_PORT:-8080}:${SERVER_PORT:-8080}"
     environment:
-      # URL of your Python AI Service
-      # Use "host.docker.internal" if running on Mac/Windows host
-      # Use "172.17.0.1" (docker bridge ip) if running on Linux host
-      - AI_SERVICE_URL=
-
-      # URL of your Qdrant DB
+      # Qdrant Vector Database Configuration
       - QDRANT_URL=http://qdrant:6334
       - QDRANT_API_KEY=my-secret-api-key
       - COLLECTION_NAME=nt-cctv-vehicles
+
+      # AI Service Configuration
+      # Use "host.docker.internal:5090" if AI service runs on Mac/Windows host
+      # Use "172.17.0.1:5090" if running on Linux host
+      # Or use the actual service name if AI service is in docker-compose
+      - AI_SERVICE_URL=http://host.docker.internal:5090
+
+      # CCTV API Configuration
+      - CCTV_API_URL=https://ntvideo.totbb.net/video-metadata/train-data-condition
+      - CCTV_AUTHORIZE_CODE=XvUlE2bk3RsknvG2
+      - CCTV_USER_AUTH=ai
+      - CCTV_CLIENT_ID=8784334342188231
+
+      # Server Configuration
+      - SERVER_PORT=${SERVER_PORT:-8080}
+
+      # Scheduler Configuration
+      - FETCH_LIMIT=${FETCH_LIMIT:-20}
+      - FETCH_DAYS_RANGE=${FETCH_DAYS_RANGE:-2}
+      - FETCH_EVERY_TIME=${FETCH_EVERY_TIME:-10}
     depends_on:
       - qdrant
     networks:

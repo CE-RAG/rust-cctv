@@ -18,8 +18,9 @@ services:
 
       # CCTV API Configuration
       - CCTV_API_URL=https://ntvideo.totbb.net/video-metadata/train-data-condition
-      - CCTV_AUTH_TOKEN=${CCTV_AUTH_TOKEN}
-      - CCTV_ID=${CCTV_ID:-cctv01}
+      - CCTV_AUTHORIZE_CODE=XvUlE2bk3RsknvG2
+      - CCTV_USER_AUTH=ai
+      - CCTV_CLIENT_ID=8784334342188231
 
       # Server Configuration
       - SERVER_PORT=${SERVER_PORT:-8080}

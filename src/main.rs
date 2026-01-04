@@ -7,6 +7,7 @@ use dotenv::dotenv;
 use qdrant_client::Qdrant;
 use std::sync::Arc;
 
+mod clients;
 mod config;
 mod docs;
 mod handlers;
@@ -17,7 +18,7 @@ mod services;
 use docs::{ApiDoc, SwaggerUi};
 use utoipa::OpenApi;
 
-use config::{technical, Config};
+use config::{Config, technical};
 use scheduler::{SchedulerContext, start_scheduler};
 
 #[actix_web::main]
@@ -76,7 +77,8 @@ async fn main() -> std::io::Result<()> {
 async fn setup_qdrant(qdrant: &Arc<Qdrant>, collection_name: &str) {
     println!("Setting up collection...");
 
-    match services::ensure_collection_exists(qdrant, collection_name, technical::VECTOR_SIZE).await {
+    match services::ensure_collection_exists(qdrant, collection_name, technical::VECTOR_SIZE).await
+    {
         Ok(_) => println!("✅ Collection is ready"),
         Err(e) => println!("⚠️  Warning: {}", e),
     }

@@ -1,5 +1,6 @@
 use std::io::Error;
 use std::sync::Arc;
+use std::time::{Duration, SystemTime};
 use tokio::sync::Mutex;
 
 use super::api_client::ApiClient;
@@ -16,7 +17,7 @@ pub struct CctvApi {
     pub base_url: String,
     pub client: Client,
     base_client: BaseApiClient,
-    token: Arc<Mutex<Option<String>>>,
+    token: Arc<Mutex<Option<(String, SystemTime)>>>,
     token_request: GetTokenRequest,
 }
 
@@ -34,7 +35,7 @@ impl CctvApi {
             authorize_code: authorize_code.into(),
             user_auth: user_auth.into(),
             client_id: client_id.into(),
-            scope: vec!["read".to_string()], // Default scope
+            scope: vec!["client".to_string()], // Default scope
         };
 
         Self {
@@ -46,22 +47,26 @@ impl CctvApi {
         }
     }
 
-    // Get or refresh the auth token
     async fn get_or_refresh_token(&self) -> Result<String, Error> {
         let mut token_guard = self.token.lock().await;
 
-        // If we already have a token, return it
-        if let Some(ref token) = *token_guard {
-            return Ok(token.clone());
+        // Check if we have a valid token that hasn't expired
+        if let Some((ref token, expiry)) = *token_guard {
+            if SystemTime::now() < expiry {
+                return Ok(token.clone());
+            }
         }
 
-        // Otherwise fetch a new token
+        // Token is expired or doesn't exist, fetch a new one
         let new_token = self
             .base_client
             .get_token(&self.token_request)
             .await
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
-        *token_guard = Some(new_token.clone());
+
+        // Set expiry to 2 hours from now (with 5 min buffer)
+        let expiry = SystemTime::now() + Duration::from_secs(2 * 60 * 60 - (5 * 60));
+        *token_guard = Some((new_token.clone(), expiry));
 
         Ok(new_token)
     }

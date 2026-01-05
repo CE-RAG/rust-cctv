@@ -30,14 +30,16 @@ impl<T: CctvApiClient> CctvService<T> {
             .await
             .map_err(|e| Error::new(std::io::ErrorKind::Other, e))?;
 
-        let resp = self
+        let response = self
             .client
             .client()
             .get(url)
             .header("Authorization", auth_header)
             .send()
             .await
-            .map_err(|e| Error::new(std::io::ErrorKind::Other, e))?
+            .map_err(|e| Error::new(std::io::ErrorKind::Other, e))?;
+
+        let resp = response
             .json::<CctvListResponse>()
             .await
             .map_err(|e| Error::new(std::io::ErrorKind::Other, e))?;
@@ -64,22 +66,24 @@ impl<T: CctvApiClient> CctvService<T> {
             .client
             .client()
             .post(url)
-            .json(request_body)
             .header("Authorization", auth_header)
+            .json(request_body)
             .send()
             .await
-            .map_err(|e| Error::new(std::io::ErrorKind::Other, e))?
+            .map_err(|e| Error::new(std::io::ErrorKind::Other, e))?;
+
+        let response_data = response
             .json::<CctvMetadataResponse>()
             .await
             .map_err(|e| Error::new(std::io::ErrorKind::Other, e))?;
 
-        if !response.success {
+        if !response_data.success {
             return Err(Error::new(
                 std::io::ErrorKind::Other,
                 "API returned success=false",
             ));
         }
 
-        Ok(response.data)
+        Ok(response_data.data)
     }
 }

@@ -17,7 +17,7 @@ services:
       - AI_SERVICE_URL=http://host.docker.internal:5090
 
       # CCTV API Configuration
-      - CCTV_API_URL=https://ntvideo.totbb.net/video-metadata/train-data-condition
+      - CCTV_API_URL=https://ntvideo.totbb.net
       - CCTV_AUTHORIZE_CODE=XvUlE2bk3RsknvG2
       - CCTV_USER_AUTH=ai
       - CCTV_CLIENT_ID=8784334342188231

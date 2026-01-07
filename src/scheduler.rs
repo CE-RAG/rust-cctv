@@ -91,7 +91,7 @@ async fn run_fetch_task(ctx: &SchedulerContext) {
     // Calculate time range in Thailand timezone
     let now = chrono::Utc::now().with_timezone(&Bangkok);
     let date_stop = now.format("%Y-%m-%d %H:%M:%S").to_string();
-    let date_start = (now - Duration::days(ctx.config.fetch_days_range))
+    let date_start = (now - Duration::days(ctx.config.fetch_every_time))
         .format("%Y-%m-%d %H:%M:%S")
         .to_string();
     // Get list of all CCTV IDs

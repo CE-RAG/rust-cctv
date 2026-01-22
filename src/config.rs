@@ -22,7 +22,7 @@ pub mod defaults {
 /// Technical constants (should not be changed without model retraining)
 pub mod technical {
     /// Vector embedding size - must match AI model output
-    pub const VECTOR_SIZE: usize = 768;
+    pub const VECTOR_SIZE: usize = 1152;
 }
 
 /// Application configuration loaded from environment

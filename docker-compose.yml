@@ -51,6 +51,21 @@ services:
       - cctv-network
     restart: unless-stopped
 
+  qdrant-seed:
+    image: python:3.11-slim
+    depends_on:
+      - qdrant
+    volumes:
+      - ./qdrant:/seed
+    working_dir: /seed
+    environment:
+      - QDRANT_API_KEY=my-secret-api-key
+    command: >
+      sh -c "pip install qdrant-client && python seed_qdrant.py"
+    networks:
+      - cctv-network
+    restart: no
+
 networks:
   cctv-network:
     driver: bridge

@@ -53,6 +53,23 @@ pub async fn search_vehicles(
     state: web::Data<AppState>,
     payload: web::Json<SearchRequest>,
 ) -> impl Responder {
+    // Log search request
+    let start_time = chrono::Utc::now();
+    let datetime_range = match (&payload.start_date, &payload.end_date) {
+        (None, None) => "all time".to_string(),
+        (Some(s), None) => format!("from {}", s),
+        (None, Some(e)) => format!("to {}", e),
+        (Some(s), Some(e)) => format!("{} to {}", s, e),
+    };
+    let top_k = payload.top_k.unwrap_or(5);
+    println!(
+        "[SEARCH] Query: {}, Range: {}, Top-K: {}, Time: {}",
+        &payload.query,
+        datetime_range,
+        top_k,
+        start_time.to_rfc3339()
+    );
+
     // Get text embedding from AI service
     let vector =
         match get_text_embedding(&state.http_client, &state.ai_service_url, &payload.query).await {
@@ -79,6 +96,13 @@ pub async fn search_vehicles(
     // Execute search and map results
     match state.qdrant.search_points(search_points).await {
         Ok(response) => {
+            let hit_count = response.result.len();
+            let elapsed_ms = start_time.signed_duration_since(chrono::Utc::now()).num_milliseconds().abs();
+            println!(
+                "[SEARCH] Completed: {} results in {}ms",
+                hit_count, elapsed_ms
+            );
+
             let hits: Vec<SearchResult> = response
                 .result
                 .into_iter()
@@ -95,7 +119,11 @@ pub async fn search_vehicles(
                 .collect();
             HttpResponse::Ok().json(hits)
         }
-        Err(e) => HttpResponse::InternalServerError().body(format!("Qdrant search error: {}", e)),
+        Err(e) => {
+            let elapsed_ms = start_time.signed_duration_since(chrono::Utc::now()).num_milliseconds().abs();
+            println!("[SEARCH] Failed after {}ms: {}", elapsed_ms, e);
+            HttpResponse::InternalServerError().body(format!("Qdrant search error: {}", e))
+        }
     }
 }
 

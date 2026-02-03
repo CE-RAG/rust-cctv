@@ -32,7 +32,7 @@ def seed_data():
             time.sleep(3)
 
     # 1. Load JSON (ensure data.json is in the same folder as this script)
-    with open('data.json', 'r') as f:
+    with open('data_2.json', 'r') as f:
         data = json.load(f)
 
     # 2. Setup Collection
